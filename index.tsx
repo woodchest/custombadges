@@ -77,16 +77,38 @@ async function loadUserBadges(userId: string): Promise<Badge[]> {
     try {
         // Use a single global key for ALL users' badges
         const globalBadges = await DataStore.get<GlobalBadgeStorage>("CustomBadges_GlobalStorage") || {};
-        console.log(`[CustomBadges] 📦 Global badge storage:`, globalBadges);
+        console.log(`[CustomBadges] 📦 Global badge storage keys:`, Object.keys(globalBadges));
+        console.log(`[CustomBadges] 📦 Full global storage:`, globalBadges);
         
-        const userBadges = globalBadges[userId] || [];
-        console.log(`[CustomBadges] 👤 Badges for user ${userId}:`, userBadges);
+        let userBadges = globalBadges[userId] || [];
+        console.log(`[CustomBadges] 👤 Badges for user ${userId} from global storage:`, userBadges);
+        
+        // MIGRATION: If no badges in global storage, try to migrate from old storage
+        if (userBadges.length === 0) {
+            console.log(`[CustomBadges] 🔄 No badges in global storage, checking old storage for ${userId}`);
+            const oldBadges = await DataStore.get(`customBadges_${userId}`);
+            console.log(`[CustomBadges] 📂 Old storage result for ${userId}:`, oldBadges);
+            
+            if (oldBadges && oldBadges.length > 0) {
+                console.log(`[CustomBadges] 🚚 Migrating ${oldBadges.length} badges from old storage for ${userId}`);
+                
+                // Add to global storage
+                globalBadges[userId] = oldBadges;
+                await DataStore.set("CustomBadges_GlobalStorage", globalBadges);
+                
+                // Clean up old storage
+                await DataStore.del(`customBadges_${userId}`);
+                
+                userBadges = oldBadges;
+                console.log(`[CustomBadges] ✅ Migration complete for ${userId}`);
+            }
+        }
         
         // Cache the result
         badgeCache.set(userId, userBadges);
         cacheTimestamps.set(userId, Date.now());
         
-        console.log(`[CustomBadges] 💾 Cached ${userBadges.length} badges for ${userId}`);
+        console.log(`[CustomBadges] 💾 Final cached ${userBadges.length} badges for ${userId}:`, userBadges);
         
         // Log prominently if we found badges for another user
         const currentUserId = UserStore.getCurrentUser()?.id;
@@ -230,7 +252,7 @@ function BadgeSettings() {
     return (
         <Forms.FormSection>
             <Forms.FormTitle>Custom Badges</Forms.FormTitle>
-            <Forms.FormText>Create and manage your custom profile badges. Your badges will be visible to anyone else using this plugin! Image URLs override emojis when provided. Click "Save Badges" to make changes permanent.</Forms.FormText>
+                         <Forms.FormText>Create and manage your custom profile badges. Note: Badges are only visible to you (client-side only). Image URLs override emojis when provided. Click "Save Badges" to make changes permanent.</Forms.FormText>
             
             {badges.map((badge, index) => (
                 <div key={index} style={{ 
@@ -334,7 +356,7 @@ const settings = definePluginSettings({
 
 export default definePlugin({
     name: "CustomBadges",
-    description: "Create custom badges for your profile - visible to other plugin users!",
+    description: "Create custom badges for your profile - visible only to you (client-side only)",
     authors: [Devs.Ven],
     settings,
 
@@ -368,67 +390,29 @@ export default definePlugin({
             console.error("[CustomBadges] ❌ Failed to load badges on start:", error);
         }
 
-        addProfileBadge({
-            description: "Custom Badges",
-            shouldShow: () => true, // Show badges for everyone using this plugin
-            getBadges: ({ userId }) => {
-                console.log(`[CustomBadges] getBadges called for user: ${userId}`);
-                
-                // Always try to load fresh data for cross-user visibility
-                // Check if this is a different user than current user
-                const currentUserId = UserStore.getCurrentUser()?.id;
-                const isOtherUser = userId !== currentUserId;
-                
-                console.log(`[CustomBadges] Current user: ${currentUserId}, Target user: ${userId}, IsOtherUser: ${isOtherUser}`);
-                
-                // Check if we have cached badges for this user
-                const cached = badgeCache.get(userId);
-                const cacheTime = cacheTimestamps.get(userId);
-                const cacheAge = cacheTime ? Date.now() - cacheTime : Infinity;
-                
-                console.log(`[CustomBadges] Cache status for ${userId}:`, { 
-                    hasCached: !!cached, 
-                    cacheAge: cacheAge,
-                    badgeCount: cached ? cached.length : 0,
-                    isStale: cacheAge > CACHE_DURATION
-                });
-                
-                // For other users, always try to refresh if cache is old or missing
-                if (isOtherUser && (!cached || cacheAge > CACHE_DURATION)) {
-                    console.log(`[CustomBadges] Force loading fresh data for other user ${userId}`);
-                    loadUserBadges(userId).then(badges => {
-                        console.log(`[CustomBadges] Force loaded ${badges.length} badges for other user ${userId}`);
-                        // TODO: Need to trigger badge refresh somehow
-                    }).catch(error => {
-                        console.error(`[CustomBadges] Force load failed for ${userId}:`, error);
-                    });
-                }
-                
-                // If we have cached data, use it
-                if (cached) {
-                    const validBadges = cached
-                        .filter(badge => badge.name && (badge.emoji || badge.url))
-                        .map(badge => ({
-                            description: badge.name,
-                            image: badge.url || emojiToImageUrl(badge.emoji),
-                            onClick: () => console.log(`${badge.name} badge clicked!`)
-                        }));
-                    
-                    console.log(`[CustomBadges] Returning ${validBadges.length} badges for ${userId}`, validBadges);
-                    return validBadges;
-                }
-                
-                // If no cache, try to load badges asynchronously
-                console.log(`[CustomBadges] No cache for ${userId}, starting async load...`);
-                loadUserBadges(userId).then(badges => {
-                    console.log(`[CustomBadges] Async load completed: ${badges.length} badges for ${userId}`, badges);
-                }).catch(error => {
-                    console.error(`[CustomBadges] Async load failed for ${userId}:`, error);
-                });
-                
-                console.log(`[CustomBadges] Returning empty array for ${userId} (no cache yet)`);
-                return []; // No badges available yet
-            }
-        });
+                 addProfileBadge({
+             description: "Custom Badges",
+             shouldShow: ({ userId }) => {
+                 // Only show badges for the current user (since cross-user visibility is impossible)
+                 const currentUserId = UserStore.getCurrentUser()?.id;
+                 return userId === currentUserId;
+             },
+             getBadges: ({ userId }) => {
+                 const currentUserId = UserStore.getCurrentUser()?.id;
+                 
+                 // Only show badges for current user (DataStore is local-only)
+                 if (userId !== currentUserId) {
+                     return [];
+                 }
+                 
+                 return userBadges
+                     .filter(badge => badge.name && (badge.emoji || badge.url))
+                     .map(badge => ({
+                         description: badge.name,
+                         image: badge.url || emojiToImageUrl(badge.emoji),
+                         onClick: () => console.log(`${badge.name} badge clicked!`)
+                     }));
+             }
+         });
     }
 });

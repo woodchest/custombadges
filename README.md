@@ -93,11 +93,22 @@ Or mix emojis and custom images:
 
 ## Notes
 
-- This is a client-side modification - other users won't see your custom badges
+- **🚨 IMPORTANT**: This is a client-side only modification - **other users cannot see your custom badges**
+- Your badges are stored locally on your device and are only visible to you
+- **Cross-user visibility is impossible** due to Discord client limitations (each user's data is stored locally)
 - Badges appear alongside Discord's native badges in the order you create them
 - **Emoji badges**: Automatically converted to high-quality Twemoji images (72x72px)
 - **Image badges**: For best results, use square images (64x64 pixels recommended)
 - Make sure your image URLs are publicly accessible (no authentication required)
-- The "Show on Others" option is just for fun/aesthetics - it only affects what you see
 - **Dynamic system**: Create as many or as few badges as you want with the "Add Badge" button
 - **Clean interface**: Each badge has its own separated container with individual controls
+
+## Why Can't Others See My Badges?
+
+The plugin uses Vencord's local storage system (DataStore) which only stores data on your own computer. There's no server or cloud component to sync badges between users. To make badges visible to others, you would need:
+
+1. A server/database to store badges
+2. Network requests to fetch other users' badges  
+3. A way to host and maintain this service
+
+This would be a much more complex system beyond a simple Vencord plugin.
