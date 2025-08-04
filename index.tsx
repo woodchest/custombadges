@@ -70,16 +70,27 @@ async function loadUserBadges(userId: string): Promise<Badge[]> {
     }
 
     try {
-        console.log(`[CustomBadges] Loading badges from DataStore for ${userId}`);
-        const badges = await DataStore.get(`customBadges_${userId}`) || [];
-        console.log(`[CustomBadges] DataStore returned ${badges.length} badges for ${userId}:`, badges);
+        const dataStoreKey = `customBadges_${userId}`;
+        console.log(`[CustomBadges] Loading badges from DataStore for ${userId} with key: ${dataStoreKey}`);
+        
+        const rawData = await DataStore.get(dataStoreKey);
+        console.log(`[CustomBadges] Raw DataStore response for ${userId}:`, rawData);
+        
+        const badges = rawData || [];
+        console.log(`[CustomBadges] Processed badges for ${userId}:`, badges);
+        console.log(`[CustomBadges] Final badge count for ${userId}: ${badges.length}`);
         
         badgeCache.set(userId, badges);
         cacheTimestamps.set(userId, Date.now());
+        
+        console.log(`[CustomBadges] Successfully cached ${badges.length} badges for ${userId}`);
         return badges;
     } catch (error) {
         console.error(`[CustomBadges] Failed to load badges for user ${userId}:`, error);
-        return [];
+        const emptyBadges: Badge[] = [];
+        badgeCache.set(userId, emptyBadges);
+        cacheTimestamps.set(userId, Date.now());
+        return emptyBadges;
     }
 }
 
@@ -307,6 +318,13 @@ export default definePlugin({
             getBadges: ({ userId }) => {
                 console.log(`[CustomBadges] Loading badges for user: ${userId}`);
                 
+                // TEMPORARY DEBUG: Clear cache for this specific user to force fresh load
+                if (userId === "1107600409012478003") {
+                    console.log(`[CustomBadges] DEBUG: Clearing cache for target user ${userId}`);
+                    badgeCache.delete(userId);
+                    cacheTimestamps.delete(userId);
+                }
+                
                 // Check if we have cached badges for this user
                 const cached = badgeCache.get(userId);
                 const cacheTime = cacheTimestamps.get(userId);
@@ -334,8 +352,10 @@ export default definePlugin({
                 // If no cache, try to load badges asynchronously
                 console.log(`[CustomBadges] No cache for ${userId}, loading asynchronously...`);
                 loadUserBadges(userId).then(badges => {
-                    console.log(`[CustomBadges] Loaded ${badges.length} badges for ${userId}`);
-                }).catch(console.error);
+                    console.log(`[CustomBadges] Async load completed: ${badges.length} badges for ${userId}`);
+                }).catch(error => {
+                    console.error(`[CustomBadges] Async load failed for ${userId}:`, error);
+                });
                 
                 return []; // No badges available yet
             }
