@@ -156,6 +156,7 @@ function BadgeSettings() {
     const [badges, setBadges] = React.useState<Badge[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [saveMessage, setSaveMessage] = React.useState("");
+    const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
 
     // Load badges from persistent storage on component mount
     React.useEffect(() => {
@@ -196,13 +197,15 @@ function BadgeSettings() {
 
     const updateBadges = async (newBadges: Badge[]) => {
         setBadges(newBadges);
-        userBadges = newBadges;
+        // DON'T update userBadges here - only update when explicitly saving
         
         // Save to global storage
         try {
             const currentUserId = UserStore.getCurrentUser()?.id;
             if (currentUserId) {
                 await saveUserBadges(currentUserId, newBadges);
+                // Only update userBadges after successful save
+                userBadges = newBadges;
             } else {
                 console.error(`[CustomBadges] No current user ID found - cannot save badges`);
             }
@@ -215,23 +218,27 @@ function BadgeSettings() {
     const addBadge = () => {
         const newBadges = [...badges, { name: "", emoji: "", url: "" }];
         setBadges(newBadges); // Only update UI, don't save yet
+        setHasUnsavedChanges(true);
     };
 
     const removeBadge = (index: number) => {
         const newBadges = badges.filter((_, i) => i !== index);
         setBadges(newBadges); // Only update UI, don't save yet
+        setHasUnsavedChanges(true);
     };
 
     const updateBadge = (index: number, field: keyof Badge, value: string) => {
         const newBadges = [...badges];
         newBadges[index][field] = value;
         setBadges(newBadges); // Only update UI, don't save yet
+        setHasUnsavedChanges(true);
     };
 
     const saveBadges = async () => {
         setSaveMessage("Saving...");
         try {
             await updateBadges(badges); // Now save to DataStore
+            setHasUnsavedChanges(false); // Clear unsaved changes flag
             setSaveMessage("✅ Saved successfully!");
             setTimeout(() => setSaveMessage(""), 3000); // Clear message after 3 seconds
         } catch (error) {
@@ -251,8 +258,26 @@ function BadgeSettings() {
 
     return (
         <Forms.FormSection>
+            <style>{`
+                @keyframes pulse {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.7; }
+                    100% { opacity: 1; }
+                }
+            `}</style>
             <Forms.FormTitle>Custom Badges</Forms.FormTitle>
-                         <Forms.FormText>Create and manage your custom profile badges. Note: Badges are only visible to you (client-side only). Image URLs override emojis when provided. Click "Save Badges" to make changes permanent.</Forms.FormText>
+            <Forms.FormText>
+                Create and manage your custom profile badges. Note: Badges are only visible to you (client-side only). Image URLs override emojis when provided. Click "Save Badges" to make changes permanent.
+                {hasUnsavedChanges && (
+                    <span style={{ 
+                        color: "#faa61a", 
+                        fontWeight: "500",
+                        marginLeft: "8px"
+                    }}>
+                        ⚠️ You have unsaved changes!
+                    </span>
+                )}
+            </Forms.FormText>
             
             {badges.map((badge, index) => (
                 <div key={index} style={{ 
@@ -327,20 +352,24 @@ function BadgeSettings() {
                 </Button>
                 <Button
                     size={Button.Sizes.MEDIUM}
-                    color={Button.Colors.BRAND}
+                    color={hasUnsavedChanges ? Button.Colors.GREEN : Button.Colors.BRAND}
                     onClick={saveBadges}
+                    style={hasUnsavedChanges ? { 
+                        animation: "pulse 1.5s infinite",
+                        boxShadow: "0 0 10px rgba(67, 181, 129, 0.5)"
+                    } : {}}
                 >
-                    💾 Save Badges
+                    💾 {hasUnsavedChanges ? "Save Changes" : "Save Badges"}
                 </Button>
-                {saveMessage && (
-                    <span style={{ 
-                        marginLeft: "12px",
-                        color: saveMessage.includes("✅") ? "var(--text-positive)" : saveMessage.includes("❌") ? "var(--text-danger)" : "var(--text-muted)",
-                        fontWeight: "500"
-                    }}>
-                        {saveMessage}
-                    </span>
-                )}
+                                 {saveMessage && (
+                     <span style={{ 
+                         marginLeft: "12px",
+                         color: saveMessage.includes("✅") ? "#43b581" : saveMessage.includes("❌") ? "#f04747" : "var(--text-normal)",
+                         fontWeight: "500"
+                     }}>
+                         {saveMessage}
+                     </span>
+                 )}
             </div>
         </Forms.FormSection>
     );
