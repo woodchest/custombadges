@@ -71,22 +71,30 @@ async function loadUserBadges(userId: string): Promise<Badge[]> {
 
     try {
         const dataStoreKey = `customBadges_${userId}`;
-        console.log(`[CustomBadges] Loading badges from DataStore for ${userId} with key: ${dataStoreKey}`);
+        console.log(`[CustomBadges] 🔍 Loading badges from DataStore for ${userId} with key: ${dataStoreKey}`);
         
         const rawData = await DataStore.get(dataStoreKey);
-        console.log(`[CustomBadges] Raw DataStore response for ${userId}:`, rawData);
+        console.log(`[CustomBadges] 📦 Raw DataStore response for ${userId}:`, rawData, typeof rawData);
         
         const badges = rawData || [];
-        console.log(`[CustomBadges] Processed badges for ${userId}:`, badges);
-        console.log(`[CustomBadges] Final badge count for ${userId}: ${badges.length}`);
+        console.log(`[CustomBadges] ✅ Processed badges for ${userId}:`, badges);
+        console.log(`[CustomBadges] 📊 Final badge count for ${userId}: ${badges.length}`);
         
+        // Always cache the result, even if empty
         badgeCache.set(userId, badges);
         cacheTimestamps.set(userId, Date.now());
         
-        console.log(`[CustomBadges] Successfully cached ${badges.length} badges for ${userId}`);
+        console.log(`[CustomBadges] 💾 Successfully cached ${badges.length} badges for ${userId}`);
+        
+        // If this is another user and they have badges, log it prominently
+        const currentUserId = UserStore.getCurrentUser()?.id;
+        if (userId !== currentUserId && badges.length > 0) {
+            console.log(`[CustomBadges] 🎉 FOUND ${badges.length} badges for OTHER USER ${userId}:`, badges);
+        }
+        
         return badges;
     } catch (error) {
-        console.error(`[CustomBadges] Failed to load badges for user ${userId}:`, error);
+        console.error(`[CustomBadges] ❌ Failed to load badges for user ${userId}:`, error);
         const emptyBadges: Badge[] = [];
         badgeCache.set(userId, emptyBadges);
         cacheTimestamps.set(userId, Date.now());
@@ -97,6 +105,7 @@ async function loadUserBadges(userId: string): Promise<Badge[]> {
 function BadgeSettings() {
     const [badges, setBadges] = React.useState<Badge[]>([]);
     const [loading, setLoading] = React.useState(true);
+    const [saveMessage, setSaveMessage] = React.useState("");
 
     // Load badges from persistent storage on component mount
     React.useEffect(() => {
@@ -178,8 +187,16 @@ function BadgeSettings() {
         setBadges(newBadges); // Only update UI, don't save yet
     };
 
-    const saveBadges = () => {
-        updateBadges(badges); // Now save to DataStore
+    const saveBadges = async () => {
+        setSaveMessage("Saving...");
+        try {
+            await updateBadges(badges); // Now save to DataStore
+            setSaveMessage("✅ Saved successfully!");
+            setTimeout(() => setSaveMessage(""), 3000); // Clear message after 3 seconds
+        } catch (error) {
+            setSaveMessage("❌ Save failed!");
+            setTimeout(() => setSaveMessage(""), 3000);
+        }
     };
 
     if (loading) {
@@ -274,6 +291,15 @@ function BadgeSettings() {
                 >
                     💾 Save Badges
                 </Button>
+                {saveMessage && (
+                    <span style={{ 
+                        marginLeft: "12px",
+                        color: saveMessage.includes("✅") ? "var(--text-positive)" : saveMessage.includes("❌") ? "var(--text-danger)" : "var(--text-muted)",
+                        fontWeight: "500"
+                    }}>
+                        {saveMessage}
+                    </span>
+                )}
             </div>
         </Forms.FormSection>
     );
@@ -334,21 +360,39 @@ export default definePlugin({
             description: "Custom Badges",
             shouldShow: () => true, // Show badges for everyone using this plugin
             getBadges: ({ userId }) => {
-                console.log(`[CustomBadges] Loading badges for user: ${userId}`);
+                console.log(`[CustomBadges] getBadges called for user: ${userId}`);
                 
-
+                // Always try to load fresh data for cross-user visibility
+                // Check if this is a different user than current user
+                const currentUserId = UserStore.getCurrentUser()?.id;
+                const isOtherUser = userId !== currentUserId;
+                
+                console.log(`[CustomBadges] Current user: ${currentUserId}, Target user: ${userId}, IsOtherUser: ${isOtherUser}`);
                 
                 // Check if we have cached badges for this user
                 const cached = badgeCache.get(userId);
                 const cacheTime = cacheTimestamps.get(userId);
+                const cacheAge = cacheTime ? Date.now() - cacheTime : Infinity;
                 
                 console.log(`[CustomBadges] Cache status for ${userId}:`, { 
                     hasCached: !!cached, 
-                    cacheAge: cacheTime ? Date.now() - cacheTime : 0,
-                    badgeCount: cached ? cached.length : 0 
+                    cacheAge: cacheAge,
+                    badgeCount: cached ? cached.length : 0,
+                    isStale: cacheAge > CACHE_DURATION
                 });
                 
-                // If we have cached data (regardless of age for now), use it
+                // For other users, always try to refresh if cache is old or missing
+                if (isOtherUser && (!cached || cacheAge > CACHE_DURATION)) {
+                    console.log(`[CustomBadges] Force loading fresh data for other user ${userId}`);
+                    loadUserBadges(userId).then(badges => {
+                        console.log(`[CustomBadges] Force loaded ${badges.length} badges for other user ${userId}`);
+                        // TODO: Need to trigger badge refresh somehow
+                    }).catch(error => {
+                        console.error(`[CustomBadges] Force load failed for ${userId}:`, error);
+                    });
+                }
+                
+                // If we have cached data, use it
                 if (cached) {
                     const validBadges = cached
                         .filter(badge => badge.name && (badge.emoji || badge.url))
@@ -358,18 +402,19 @@ export default definePlugin({
                             onClick: () => console.log(`${badge.name} badge clicked!`)
                         }));
                     
-                    console.log(`[CustomBadges] Returning ${validBadges.length} badges for ${userId}`);
+                    console.log(`[CustomBadges] Returning ${validBadges.length} badges for ${userId}`, validBadges);
                     return validBadges;
                 }
                 
                 // If no cache, try to load badges asynchronously
-                console.log(`[CustomBadges] No cache for ${userId}, loading asynchronously...`);
+                console.log(`[CustomBadges] No cache for ${userId}, starting async load...`);
                 loadUserBadges(userId).then(badges => {
-                    console.log(`[CustomBadges] Async load completed: ${badges.length} badges for ${userId}`);
+                    console.log(`[CustomBadges] Async load completed: ${badges.length} badges for ${userId}`, badges);
                 }).catch(error => {
                     console.error(`[CustomBadges] Async load failed for ${userId}:`, error);
                 });
                 
+                console.log(`[CustomBadges] Returning empty array for ${userId} (no cache yet)`);
                 return []; // No badges available yet
             }
         });
