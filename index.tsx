@@ -157,6 +157,7 @@ function BadgeSettings() {
     const [loading, setLoading] = React.useState(true);
     const [saveMessage, setSaveMessage] = React.useState("");
     const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
+    const [lastSavedBadges, setLastSavedBadges] = React.useState<Badge[]>([]);
 
     // Load badges from persistent storage on component mount
     React.useEffect(() => {
@@ -172,14 +173,16 @@ function BadgeSettings() {
                             { name: "Developer", emoji: "💻", url: "" }
                         ];
                         setBadges(defaultBadges);
-                        // Don't update savedBadges yet - only when explicitly saved
                         // Save the defaults using global storage
                         await saveUserBadges(currentUserId, defaultBadges);
                         // Only NOW update savedBadges since we actually saved
                         savedBadges = defaultBadges;
+                        setLastSavedBadges(defaultBadges);
                     } else {
                         setBadges(stored);
-                        savedBadges = stored; // These are already saved, so update savedBadges
+                        setLastSavedBadges(stored);
+                        // Set savedBadges to what was actually saved
+                        savedBadges = stored;
                     }
                 }
             } catch (error) {
@@ -190,6 +193,7 @@ function BadgeSettings() {
                     { name: "Developer", emoji: "💻", url: "" }
                 ];
                 setBadges(defaultBadges);
+                setLastSavedBadges([]); // No badges are actually saved yet
                 // Don't update savedBadges for fallback - user needs to save explicitly
             }
             setLoading(false);
@@ -214,30 +218,33 @@ function BadgeSettings() {
         }
     };
 
+    // Check if current badges differ from last saved
+    React.useEffect(() => {
+        const hasChanges = JSON.stringify(badges) !== JSON.stringify(lastSavedBadges);
+        setHasUnsavedChanges(hasChanges);
+    }, [badges, lastSavedBadges]);
+
     const addBadge = () => {
         const newBadges = [...badges, { name: "", emoji: "", url: "" }];
-        setBadges(newBadges); // Only update UI, don't save yet
-        setHasUnsavedChanges(true);
+        setBadges(newBadges); // Only update UI, don't update savedBadges
     };
 
     const removeBadge = (index: number) => {
         const newBadges = badges.filter((_, i) => i !== index);
-        setBadges(newBadges); // Only update UI, don't save yet
-        setHasUnsavedChanges(true);
+        setBadges(newBadges); // Only update UI, don't update savedBadges
     };
 
     const updateBadge = (index: number, field: keyof Badge, value: string) => {
         const newBadges = [...badges];
         newBadges[index][field] = value;
-        setBadges(newBadges); // Only update UI, don't save yet
-        setHasUnsavedChanges(true);
+        setBadges(newBadges); // Only update UI, don't update savedBadges
     };
 
     const saveBadges = async () => {
         setSaveMessage("Saving...");
         try {
             await updateBadges(badges); // Now save to DataStore
-            setHasUnsavedChanges(false); // Clear unsaved changes flag
+            setLastSavedBadges([...badges]); // Update what we consider "saved"
             setSaveMessage("✅ Saved successfully!");
             setTimeout(() => setSaveMessage(""), 3000); // Clear message after 3 seconds
         } catch (error) {
@@ -400,18 +407,12 @@ export default definePlugin({
                 const badges = await loadUserBadges(currentUserId);
                 console.log(`[CustomBadges] 📋 Loaded ${badges.length} badges for current user`);
                 
-                savedBadges = badges;
-                
-                // If no badges exist, create defaults and save them
-                if (badges.length === 0) {
-                    console.log(`[CustomBadges] 🆕 No badges found, creating defaults`);
-                    const defaultBadges = [
-                        { name: "Gaming", emoji: "🎮", url: "" },
-                        { name: "Developer", emoji: "💻", url: "" }
-                    ];
-                    await saveUserBadges(currentUserId, defaultBadges);
-                    savedBadges = defaultBadges; // Only update after saving
-                    console.log(`[CustomBadges] ✅ Created default badges for ${currentUserId}`);
+                // Only set savedBadges if we actually have saved badges
+                if (badges.length > 0) {
+                    savedBadges = badges;
+                    console.log(`[CustomBadges] ✅ Set ${badges.length} saved badges for display`);
+                } else {
+                    console.log(`[CustomBadges] 📭 No saved badges found - user needs to save to see badges in Discord`);
                 }
             }
         } catch (error) {
