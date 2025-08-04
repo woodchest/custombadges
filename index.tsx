@@ -49,8 +49,8 @@ function emojiToImageUrl(emoji: string): string {
     return `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${codePoints}.png`;
 }
 
-// Persistent badge storage per user
-let userBadges: Badge[] = [];
+// Persistent badge storage per user - this is what actually shows in Discord
+let savedBadges: Badge[] = [];
 
 // Cache for other users' badges (for performance)
 const badgeCache = new Map<string, Badge[]>();
@@ -172,12 +172,14 @@ function BadgeSettings() {
                             { name: "Developer", emoji: "💻", url: "" }
                         ];
                         setBadges(defaultBadges);
-                        userBadges = defaultBadges;
+                        // Don't update savedBadges yet - only when explicitly saved
                         // Save the defaults using global storage
                         await saveUserBadges(currentUserId, defaultBadges);
+                        // Only NOW update savedBadges since we actually saved
+                        savedBadges = defaultBadges;
                     } else {
                         setBadges(stored);
-                        userBadges = stored;
+                        savedBadges = stored; // These are already saved, so update savedBadges
                     }
                 }
             } catch (error) {
@@ -188,7 +190,7 @@ function BadgeSettings() {
                     { name: "Developer", emoji: "💻", url: "" }
                 ];
                 setBadges(defaultBadges);
-                userBadges = defaultBadges;
+                // Don't update savedBadges for fallback - user needs to save explicitly
             }
             setLoading(false);
         };
@@ -196,16 +198,13 @@ function BadgeSettings() {
     }, []);
 
     const updateBadges = async (newBadges: Badge[]) => {
-        setBadges(newBadges);
-        // DON'T update userBadges here - only update when explicitly saving
-        
-        // Save to global storage
+        // Save to persistent storage first
         try {
             const currentUserId = UserStore.getCurrentUser()?.id;
             if (currentUserId) {
                 await saveUserBadges(currentUserId, newBadges);
-                // Only update userBadges after successful save
-                userBadges = newBadges;
+                // Only update savedBadges after successful save to storage
+                savedBadges = newBadges;
             } else {
                 console.error(`[CustomBadges] No current user ID found - cannot save badges`);
             }
@@ -401,7 +400,7 @@ export default definePlugin({
                 const badges = await loadUserBadges(currentUserId);
                 console.log(`[CustomBadges] 📋 Loaded ${badges.length} badges for current user`);
                 
-                userBadges = badges;
+                savedBadges = badges;
                 
                 // If no badges exist, create defaults and save them
                 if (badges.length === 0) {
@@ -410,8 +409,8 @@ export default definePlugin({
                         { name: "Gaming", emoji: "🎮", url: "" },
                         { name: "Developer", emoji: "💻", url: "" }
                     ];
-                    userBadges = defaultBadges;
                     await saveUserBadges(currentUserId, defaultBadges);
+                    savedBadges = defaultBadges; // Only update after saving
                     console.log(`[CustomBadges] ✅ Created default badges for ${currentUserId}`);
                 }
             }
@@ -434,13 +433,13 @@ export default definePlugin({
                      return [];
                  }
                  
-                 return userBadges
-                     .filter(badge => badge.name && (badge.emoji || badge.url))
-                     .map(badge => ({
-                         description: badge.name,
-                         image: badge.url || emojiToImageUrl(badge.emoji),
-                         onClick: () => console.log(`${badge.name} badge clicked!`)
-                     }));
+                                 return savedBadges
+                    .filter(badge => badge.name && (badge.emoji || badge.url))
+                    .map(badge => ({
+                        description: badge.name,
+                        image: badge.url || emojiToImageUrl(badge.emoji),
+                        onClick: () => console.log(`${badge.name} badge clicked!`)
+                    }));
              }
          });
     }
