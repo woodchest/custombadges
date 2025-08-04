@@ -57,48 +57,76 @@ const badgeCache = new Map<string, Badge[]>();
 const cacheTimestamps = new Map<string, number>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-// Load badges for any user
+// Global badges storage - all users' badges in one object
+interface GlobalBadgeStorage {
+    [userId: string]: Badge[];
+}
+
+// Load badges for any user from global storage
 async function loadUserBadges(userId: string): Promise<Badge[]> {
-    console.log(`[CustomBadges] loadUserBadges called for: ${userId}`);
+    console.log(`[CustomBadges] 🔍 Loading badges for user: ${userId}`);
     
     // Check cache first
     const cached = badgeCache.get(userId);
     const cacheTime = cacheTimestamps.get(userId);
     if (cached && cacheTime && (Date.now() - cacheTime) < CACHE_DURATION) {
-        console.log(`[CustomBadges] Using cached badges for ${userId}:`, cached.length);
+        console.log(`[CustomBadges] ✅ Using cached badges for ${userId}:`, cached.length);
         return cached;
     }
 
     try {
-        const dataStoreKey = `customBadges_${userId}`;
-        console.log(`[CustomBadges] 🔍 Loading badges from DataStore for ${userId} with key: ${dataStoreKey}`);
+        // Use a single global key for ALL users' badges
+        const globalBadges = await DataStore.get<GlobalBadgeStorage>("CustomBadges_GlobalStorage") || {};
+        console.log(`[CustomBadges] 📦 Global badge storage:`, globalBadges);
         
-        const rawData = await DataStore.get(dataStoreKey);
-        console.log(`[CustomBadges] 📦 Raw DataStore response for ${userId}:`, rawData, typeof rawData);
+        const userBadges = globalBadges[userId] || [];
+        console.log(`[CustomBadges] 👤 Badges for user ${userId}:`, userBadges);
         
-        const badges = rawData || [];
-        console.log(`[CustomBadges] ✅ Processed badges for ${userId}:`, badges);
-        console.log(`[CustomBadges] 📊 Final badge count for ${userId}: ${badges.length}`);
-        
-        // Always cache the result, even if empty
-        badgeCache.set(userId, badges);
+        // Cache the result
+        badgeCache.set(userId, userBadges);
         cacheTimestamps.set(userId, Date.now());
         
-        console.log(`[CustomBadges] 💾 Successfully cached ${badges.length} badges for ${userId}`);
+        console.log(`[CustomBadges] 💾 Cached ${userBadges.length} badges for ${userId}`);
         
-        // If this is another user and they have badges, log it prominently
+        // Log prominently if we found badges for another user
         const currentUserId = UserStore.getCurrentUser()?.id;
-        if (userId !== currentUserId && badges.length > 0) {
-            console.log(`[CustomBadges] 🎉 FOUND ${badges.length} badges for OTHER USER ${userId}:`, badges);
+        if (userId !== currentUserId && userBadges.length > 0) {
+            console.log(`[CustomBadges] 🎉 FOUND ${userBadges.length} badges for OTHER USER ${userId}!`);
         }
         
-        return badges;
+        return userBadges;
     } catch (error) {
         console.error(`[CustomBadges] ❌ Failed to load badges for user ${userId}:`, error);
         const emptyBadges: Badge[] = [];
         badgeCache.set(userId, emptyBadges);
         cacheTimestamps.set(userId, Date.now());
         return emptyBadges;
+    }
+}
+
+// Save badges for current user to global storage
+async function saveUserBadges(userId: string, badges: Badge[]): Promise<void> {
+    try {
+        console.log(`[CustomBadges] 💾 Saving ${badges.length} badges for user ${userId}`);
+        
+        // Load existing global storage
+        const globalBadges = await DataStore.get<GlobalBadgeStorage>("CustomBadges_GlobalStorage") || {};
+        
+        // Update this user's badges
+        globalBadges[userId] = badges;
+        
+        // Save back to global storage
+        await DataStore.set("CustomBadges_GlobalStorage", globalBadges);
+        
+        // Update cache
+        badgeCache.set(userId, badges);
+        cacheTimestamps.set(userId, Date.now());
+        
+        console.log(`[CustomBadges] ✅ Successfully saved badges for ${userId} to global storage`);
+        console.log(`[CustomBadges] 📊 Global storage now contains:`, Object.keys(globalBadges).length, "users");
+    } catch (error) {
+        console.error(`[CustomBadges] ❌ Failed to save badges for user ${userId}:`, error);
+        throw error;
     }
 }
 
@@ -122,10 +150,8 @@ function BadgeSettings() {
                         ];
                         setBadges(defaultBadges);
                         userBadges = defaultBadges;
-                        // Save the defaults
-                        await DataStore.set(`customBadges_${currentUserId}`, defaultBadges);
-                        badgeCache.set(currentUserId, defaultBadges);
-                        cacheTimestamps.set(currentUserId, Date.now());
+                        // Save the defaults using global storage
+                        await saveUserBadges(currentUserId, defaultBadges);
                     } else {
                         setBadges(stored);
                         userBadges = stored;
@@ -150,24 +176,17 @@ function BadgeSettings() {
         setBadges(newBadges);
         userBadges = newBadges;
         
-        // Save to persistent storage and update cache
+        // Save to global storage
         try {
             const currentUserId = UserStore.getCurrentUser()?.id;
-            console.log(`[CustomBadges] Saving ${newBadges.length} badges for user: ${currentUserId}`);
-            
             if (currentUserId) {
-                const dataStoreKey = `customBadges_${currentUserId}`;
-                await DataStore.set(dataStoreKey, newBadges);
-                
-                // Update cache so other views show the changes immediately
-                badgeCache.set(currentUserId, newBadges);
-                cacheTimestamps.set(currentUserId, Date.now());
-                console.log(`[CustomBadges] Successfully saved and cached badges`);
+                await saveUserBadges(currentUserId, newBadges);
             } else {
                 console.error(`[CustomBadges] No current user ID found - cannot save badges`);
             }
         } catch (error) {
             console.error("Failed to save badges:", error);
+            throw error; // Re-throw so saveBadges can show error message
         }
     };
 
@@ -322,38 +341,31 @@ export default definePlugin({
     async start() {
         console.log("[CustomBadges] Plugin starting...");
         
-        // Load current user's badges on plugin start
+        // Load current user's badges on plugin start using global storage
         try {
             const currentUserId = UserStore.getCurrentUser()?.id;
-            console.log(`[CustomBadges] Current user ID: ${currentUserId}`);
+            console.log(`[CustomBadges] 🚀 Plugin starting for user: ${currentUserId}`);
             
             if (currentUserId) {
-                const badges = await DataStore.get(`customBadges_${currentUserId}`) || [
-                    { name: "Gaming", emoji: "🎮", url: "" },
-                    { name: "Developer", emoji: "💻", url: "" }
-                ];
-                console.log(`[CustomBadges] Loaded ${badges.length} badges for current user:`, badges);
+                const badges = await loadUserBadges(currentUserId);
+                console.log(`[CustomBadges] 📋 Loaded ${badges.length} badges for current user`);
                 
                 userBadges = badges;
-                // Cache the current user's badges immediately
-                badgeCache.set(currentUserId, badges);
-                cacheTimestamps.set(currentUserId, Date.now());
                 
-                console.log(`[CustomBadges] Cached badges for current user ${currentUserId}`);
+                // If no badges exist, create defaults and save them
+                if (badges.length === 0) {
+                    console.log(`[CustomBadges] 🆕 No badges found, creating defaults`);
+                    const defaultBadges = [
+                        { name: "Gaming", emoji: "🎮", url: "" },
+                        { name: "Developer", emoji: "💻", url: "" }
+                    ];
+                    userBadges = defaultBadges;
+                    await saveUserBadges(currentUserId, defaultBadges);
+                    console.log(`[CustomBadges] ✅ Created default badges for ${currentUserId}`);
+                }
             }
         } catch (error) {
-            console.error("[CustomBadges] Failed to load badges on start:", error);
-            const defaultBadges = [
-                { name: "Gaming", emoji: "🎮", url: "" },
-                { name: "Developer", emoji: "💻", url: "" }
-            ];
-            userBadges = defaultBadges;
-            const currentUserId = UserStore.getCurrentUser()?.id;
-            if (currentUserId) {
-                badgeCache.set(currentUserId, defaultBadges);
-                cacheTimestamps.set(currentUserId, Date.now());
-                console.log(`[CustomBadges] Set default badges for ${currentUserId}`);
-            }
+            console.error("[CustomBadges] ❌ Failed to load badges on start:", error);
         }
 
         addProfileBadge({
