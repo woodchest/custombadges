@@ -144,11 +144,18 @@ function BadgeSettings() {
         // Save to persistent storage and update cache
         try {
             const currentUserId = UserStore.getCurrentUser()?.id;
+            console.log(`[CustomBadges] Saving ${newBadges.length} badges for user: ${currentUserId}`);
+            
             if (currentUserId) {
-                await DataStore.set(`customBadges_${currentUserId}`, newBadges);
+                const dataStoreKey = `customBadges_${currentUserId}`;
+                await DataStore.set(dataStoreKey, newBadges);
+                
                 // Update cache so other views show the changes immediately
                 badgeCache.set(currentUserId, newBadges);
                 cacheTimestamps.set(currentUserId, Date.now());
+                console.log(`[CustomBadges] Successfully saved and cached badges`);
+            } else {
+                console.error(`[CustomBadges] No current user ID found - cannot save badges`);
             }
         } catch (error) {
             console.error("Failed to save badges:", error);
@@ -157,18 +164,22 @@ function BadgeSettings() {
 
     const addBadge = () => {
         const newBadges = [...badges, { name: "", emoji: "", url: "" }];
-        updateBadges(newBadges);
+        setBadges(newBadges); // Only update UI, don't save yet
     };
 
     const removeBadge = (index: number) => {
         const newBadges = badges.filter((_, i) => i !== index);
-        updateBadges(newBadges);
+        setBadges(newBadges); // Only update UI, don't save yet
     };
 
     const updateBadge = (index: number, field: keyof Badge, value: string) => {
         const newBadges = [...badges];
         newBadges[index][field] = value;
-        updateBadges(newBadges);
+        setBadges(newBadges); // Only update UI, don't save yet
+    };
+
+    const saveBadges = () => {
+        updateBadges(badges); // Now save to DataStore
     };
 
     if (loading) {
@@ -183,7 +194,7 @@ function BadgeSettings() {
     return (
         <Forms.FormSection>
             <Forms.FormTitle>Custom Badges</Forms.FormTitle>
-            <Forms.FormText>Create and manage your custom profile badges (saved automatically). Your badges will be visible to anyone else using this plugin! Image URLs override emojis when provided.</Forms.FormText>
+            <Forms.FormText>Create and manage your custom profile badges. Your badges will be visible to anyone else using this plugin! Image URLs override emojis when provided. Click "Save Badges" to make changes permanent.</Forms.FormText>
             
             {badges.map((badge, index) => (
                 <div key={index} style={{ 
@@ -248,13 +259,20 @@ function BadgeSettings() {
                 </div>
             ))}
             
-            <div style={{ marginTop: "16px" }}>
+            <div style={{ marginTop: "16px", display: "flex", gap: "12px" }}>
                 <Button
                     size={Button.Sizes.MEDIUM}
                     color={Button.Colors.GREEN}
                     onClick={addBadge}
                 >
                     ➕ Add New Badge
+                </Button>
+                <Button
+                    size={Button.Sizes.MEDIUM}
+                    color={Button.Colors.BRAND}
+                    onClick={saveBadges}
+                >
+                    💾 Save Badges
                 </Button>
             </div>
         </Forms.FormSection>
@@ -318,12 +336,7 @@ export default definePlugin({
             getBadges: ({ userId }) => {
                 console.log(`[CustomBadges] Loading badges for user: ${userId}`);
                 
-                // TEMPORARY DEBUG: Clear cache for this specific user to force fresh load
-                if (userId === "1107600409012478003") {
-                    console.log(`[CustomBadges] DEBUG: Clearing cache for target user ${userId}`);
-                    badgeCache.delete(userId);
-                    cacheTimestamps.delete(userId);
-                }
+
                 
                 // Check if we have cached badges for this user
                 const cached = badgeCache.get(userId);
