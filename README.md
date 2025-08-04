@@ -103,12 +103,3 @@ Or mix emojis and custom images:
 - **Dynamic system**: Create as many or as few badges as you want with the "Add Badge" button
 - **Clean interface**: Each badge has its own separated container with individual controls
 
-## Why Can't Others See My Badges?
-
-The plugin uses Vencord's local storage system (DataStore) which only stores data on your own computer. There's no server or cloud component to sync badges between users. To make badges visible to others, you would need:
-
-1. A server/database to store badges
-2. Network requests to fetch other users' badges  
-3. A way to host and maintain this service
-
-This would be a much more complex system beyond a simple Vencord plugin.
